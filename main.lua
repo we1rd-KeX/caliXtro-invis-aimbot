@@ -1,47 +1,72 @@
--- [[ CALIXTRO LIGHT AIM ASSIST ]]
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local lp = Players.LocalPlayer
-local mouse = lp:GetMouse()
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
--- Settings (Low power)
-local AssistRange = 500 -- Max distance
-local Smoothness = 0.15 -- Lower = Snappier, Higher = More natural
+-- Configuration
+local Config = {
+    Enabled = true,
+    ToggleKey = Enum.KeyCode.F3,
+    AimbotSmoothing = 0.15,
+    TracerColor = Color3.fromRGB(0, 255, 255), -- Cyan for visibility
+    LineThickness = 1
+}
+
+-- Create Tracer Object
+local Tracer = Drawing.new("Line")
+Tracer.Visible = false
+Tracer.Thickness = Config.LineThickness
+Tracer.Color = Config.TracerColor
+Tracer.Transparency = 1
+
+-- Toggle Logic
+UserInputService.InputBegan:Connect(function(input, processed)
+    if not processed and input.KeyCode == Config.ToggleKey then
+        Config.Enabled = not Config.Enabled
+        if not Config.Enabled then Tracer.Visible = false end
+    end
+end)
 
 local function getClosestPlayer()
-    local closest = nil
-    local shortestDist = AssistRange
-
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= lp and player.Character and player.Character:FindFirstChild("Head") then
-            -- Check if they are alive (Health > 0)
-            local human = player.Character:FindFirstChild("Humanoid")
-            if human and human.Health > 0 then
-                local dist = (lp.Character.Head.Position - player.Character.Head.Position).Magnitude
-                if dist < shortestDist then
-                    closest = player.Character.Head
-                    shortestDist = dist
+    local target = nil
+    local dist = math.huge
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid").Health > 0 then
+            local pos, onScreen = Camera:WorldToViewportPoint(v.Character.HumanoidRootPart.Position)
+            if onScreen then
+                local magnitude = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)).Magnitude
+                if magnitude < dist then
+                    target = v.Character.HumanoidRootPart
+                    dist = magnitude
                 end
             end
         end
     end
-    return closest
+    return target
 end
 
--- The "Stealth" Loop
 RunService.RenderStepped:Connect(function()
-    -- Only assist if you are holding Right Click (Aiming)
-    if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
-        local target = getClosestPlayer()
-        if target then
-            local cam = workspace.CurrentCamera
-            local targetPos = CFrame.new(cam.CFrame.Position, target.Position)
+    if not Config.Enabled then return end
+    
+    local target = getClosestPlayer()
+    
+    if target then
+        local screenPos, onScreen = Camera:WorldToViewportPoint(target.Position)
+        
+        if onScreen then
+            -- 1. ESP Tracer Logic (From Bottom Center to Enemy)
+            Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+            Tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+            Tracer.Visible = true
             
-            -- Smoothly rotate the camera toward the head
-            cam.CFrame = cam.CFrame:Lerp(targetPos, Smoothness)
+            -- 2. Invis Aimbot Logic (Smooth Camera Correction)
+            local aimPos = CFrame.new(Camera.CFrame.Position, target.Position)
+            Camera.CFrame = Camera.CFrame:Lerp(aimPos, Config.AimbotSmoothing)
+        else
+            Tracer.Visible = false
         end
+    else
+        Tracer.Visible = false
     end
 end)
-
-print("CaliXtro: Aim Assist Loaded")
