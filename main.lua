@@ -1,44 +1,65 @@
+-- CaliXtro Project: Stable Aimbot + ESP
+-- Optimized for Xeno & 2GB RAM
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- Configuration
 local Config = {
     Enabled = true,
-    ToggleKey = Enum.KeyCode.F3,
-    AimbotSmoothing = 0.15,
-    TracerColor = Color3.fromRGB(0, 255, 255), -- Cyan for visibility
-    LineThickness = 1
+    FOV = 150,
+    ShowBox = true,
+    ShowTracer = true,
+    TeamCheck = true,
+    BoxColor = Color3.fromRGB(255, 0, 0),
+    TracerColor = Color3.fromRGB(0, 255, 255)
 }
 
--- Create Tracer Object
-local Tracer = Drawing.new("Line")
-Tracer.Visible = false
-Tracer.Thickness = Config.LineThickness
-Tracer.Color = Config.TracerColor
-Tracer.Transparency = 1
+-- Storage for drawing objects
+local ESP = {}
 
--- Toggle Logic
-UserInputService.InputBegan:Connect(function(input, processed)
-    if not processed and input.KeyCode == Config.ToggleKey then
-        Config.Enabled = not Config.Enabled
-        if not Config.Enabled then Tracer.Visible = false end
+local function createESP(player)
+    local tracer = Drawing.new("Line")
+    local box = Drawing.new("Square") -- Re-initializing for stability
+    
+    tracer.Thickness = 1
+    tracer.Color = Config.TracerColor
+    
+    box.Thickness = 1
+    box.Color = Config.BoxColor
+    box.Filled = false
+    
+    ESP[player] = {Tracer = tracer, Box = box}
+end
+
+-- Cleanup when player leaves
+Players.PlayerRemoving:Connect(function(p)
+    if ESP[p] then
+        ESP[p].Tracer:Remove()
+        ESP[p].Box:Remove()
+        ESP[p] = nil
     end
 end)
 
-local function getClosestPlayer()
+local function getTarget()
     local target = nil
-    local dist = math.huge
+    local dist = Config.FOV
+    
     for _, v in pairs(Players:GetPlayers()) do
-        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid").Health > 0 then
-            local pos, onScreen = Camera:WorldToViewportPoint(v.Character.HumanoidRootPart.Position)
+        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
+            if Config.TeamCheck and v.Team == LocalPlayer.Team then continue end
+            
+            local hrp = v.Character.HumanoidRootPart
+            local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            
             if onScreen then
-                local magnitude = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)).Magnitude
-                if magnitude < dist then
-                    target = v.Character.HumanoidRootPart
-                    dist = magnitude
+                local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                local mag = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+                
+                if mag < dist then
+                    target = hrp
+                    dist = mag
                 end
             end
         end
@@ -47,26 +68,42 @@ local function getClosestPlayer()
 end
 
 RunService.RenderStepped:Connect(function()
-    if not Config.Enabled then return end
+    local target = getTarget()
     
-    local target = getClosestPlayer()
+    -- Aimbot Logic
+    if target and Config.Enabled then
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Position)
+    end
     
-    if target then
-        local screenPos, onScreen = Camera:WorldToViewportPoint(target.Position)
-        
-        if onScreen then
-            -- 1. ESP Tracer Logic (From Bottom Center to Enemy)
-            Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-            Tracer.To = Vector2.new(screenPos.X, screenPos.Y)
-            Tracer.Visible = true
+    -- ESP Rendering Loop
+    for player, drawings in pairs(ESP) do
+        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid").Health > 0 then
+            local hrp = player.Character.HumanoidRootPart
+            local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
             
-            -- 2. Invis Aimbot Logic (Smooth Camera Correction)
-            local aimPos = CFrame.new(Camera.CFrame.Position, target.Position)
-            Camera.CFrame = Camera.CFrame:Lerp(aimPos, Config.AimbotSmoothing)
+            if onScreen then
+                -- BOX LOGIC (Corrected for Xeno)
+                local sizeX = 2000 / pos.Z
+                local sizeY = 3000 / pos.Z
+                
+                drawings.Box.Visible = Config.ShowBox
+                drawings.Box.Size = Vector2.new(sizeX, sizeY)
+                drawings.Box.Position = Vector2.new(pos.X - sizeX / 2, pos.Y - sizeY / 2)
+                
+                -- TRACER LOGIC
+                drawings.Tracer.Visible = Config.ShowTracer
+                drawings.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                drawings.Tracer.To = Vector2.new(pos.X, pos.Y)
+            else
+                drawings.Box.Visible = false
+                drawings.Tracer.Visible = false
+            end
         else
-            Tracer.Visible = false
+            drawings.Box.Visible = false
+            drawings.Tracer.Visible = false
         end
-    else
-        Tracer.Visible = false
     end
 end)
+
+-- Initialize for current players
+for _, p in pairs(Players:GetPlayers()) do if p ~= LocalPlayer then createESP(p) end endv
